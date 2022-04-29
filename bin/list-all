@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+set -o nounset -o pipefail -o errexit
+IFS=$'\t\n'
 
 curl -Lqs https://rubygems.org/api/v1/versions/bundler.json |
   grep -Eo '"number":"[^"]+"' |

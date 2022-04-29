@@ -1,23 +1,66 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+set -o nounset -o pipefail -o errexit -xe
+IFS=$'\t\n'
 
-if [[ "${ASDF_INSTALL_TYPE:-version}" == 'ref' ]]; then
-  echo >&2 "⛔ This plugin does not support installing by ref."
+asdf_bundler_fail() {
+  >&2 echo "⛔ $*"
   exit 1
-fi
+}
 
-# if not asdf version with asdf_download_path then call download script here
-if [[ -z "${ASDF_DOWNLOAD_PATH:-}" ]]; then
-  export ASDF_DOWNLOAD_PATH="${ASDF_INSTALL_PATH}"
+asdf_bundler_download_wget() {
+  wget --quiet -O - "https://rubygems.org/api/v2/rubygems/bundler/versions/${ASDF_INSTALL_VERSION}.json" |
+    grep -Eo '"gem_uri":"[^"]+"' |
+    cut -d\" -f4 |
+    xargs wget --quiet -O - |
+    tar x -f- -O data.tar.gz |
+    tar xz
+}
 
-  bash "$(dirname "$0")/download"
-else
-  cp -R "${ASDF_DOWNLOAD_PATH}"/* "${ASDF_INSTALL_PATH}"
-fi
+asdf_bundler_download_curl() {
+  curl -Lqs "https://rubygems.org/api/v2/rubygems/bundler/versions/${ASDF_INSTALL_VERSION}.json" |
+    grep -Eo '"gem_uri":"[^"]+"' |
+    cut -d\" -f4 |
+    xargs curl -Lqs |
+    tar x -f- -O data.tar.gz |
+    tar xz
+}
 
-ls "${ASDF_INSTALL_PATH}/exe" | while read file; do
-    sed -i.tmp -E "s|#!/usr/bin/env ruby|#!/usr/bin/env -S RUBYLIB=${ASDF_INSTALL_PATH}/lib ruby|" \
-        "${ASDF_INSTALL_PATH}/exe/${file}"
-    rm "${ASDF_INSTALL_PATH}/exe"/*.tmp
-done
+asdf_bundler_download() {
+  if [ -x "$(which wget)" ]; then
+    asdf_bundler_download_wget
+  else
+    if [ -x "$(which curl)" ]; then
+      asdf_bundler_download_curl
+    fi
+  fi
+}
+
+asdf_bundler_install() {
+  local ASDF_BUNDLER_DIR="$(mktemp -d -t asdf-bundler-XXXXXXX)"
+
+  (
+    cd "${ASDF_BUNDLER_DIR}"
+
+    asdf_bundler_download
+  )
+
+  if [ -d "${ASDF_INSTALL_PATH}" ]; then
+    # Remove existing install directory
+    rm -fR "${ASDF_INSTALL_PATH}"
+  fi
+
+  # Create parent directory, if necessary
+  mkdir -p "$(dirname "${ASDF_INSTALL_PATH}")"
+
+  # Finish the installation
+  mv "${ASDF_BUNDLER_DIR}" "${ASDF_INSTALL_PATH}"
+}
+
+[ "${ASDF_INSTALL_TYPE}" == 'ref' ] && asdf_bundler_fail "This plugin does not support installing by ref."
+[ -z "${ASDF_INSTALL_VERSION}" ] && asdf_bundler_fail "Unspecified install version."
+[ -z "${ASDF_INSTALL_PATH}" ] && asdf_bundler_fail "No installation directory was provided. Are you running this command via asdf? Try running 'asdf install bundler <version>'"
+[ -x "$(which wget)" -o -x "$(which curl)" ] || asdf_bundler_fail "Missing one of either of the following dependencies: wget, curl"
+[ -x "$(which tar)" -a -x "$(which gpg)" ] || asdf_bundler_fail "Missing one or more of the following dependencies: tar, gpg"
+
+asdf_bundler_install $*
