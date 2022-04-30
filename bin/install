@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -o nounset -o pipefail -o errexit -xe
+set -o nounset -o pipefail -o errexit
 IFS=$'\t\n'
 
 asdf_bundler_fail() {
